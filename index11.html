@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>카카오맵 카페인 지도</title>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: sans-serif;
+    }
+
+    body {
+      background-color: #f5f5f5;
+    }
+
+    /* 상단 탭 */
+    .tab-container {
+      display: flex;
+      width: 100%;
+      height: 60px;
+      background-color: white;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .tab-button {
+      flex: 1;
+      border: none;
+      background-color: white;
+      font-size: 16px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .tab-button.active {
+      background-color: #ffe812;
+      font-weight: bold;
+    }
+
+    /* 지도 */
+    #map {
+      width: 100%;
+      height: calc(100vh - 60px);
+    }
+
+    /* 커스텀 말풍선 */
+    .custom-overlay {
+      position: relative;
+      background: white;
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      min-width: 230px;
+    }
+
+    .overlay-title {
+      font-size: 17px;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+
+    .overlay-phone {
+      color: #555;
+      margin-bottom: 12px;
+    }
+
+    .overlay-link {
+      display: inline-block;
+      padding: 8px 12px;
+      background-color: #ffe812;
+      border-radius: 8px;
+      text-decoration: none;
+      color: black;
+      font-weight: bold;
+    }
+
+    .overlay-close {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+  </style>
+</head>
+
+<body>
+
+  <!-- 상단 탭 -->
+  <div class="tab-container">
+
+    <button class="tab-button active"
+      onclick="changeCategory('CV', this)">
+      편의점
+    </button>
+
+    <button class="tab-button"
+      onclick="changeCategory('HP8', this)">
+      병원
+    </button>
+
+  </div>
+
+  <!-- 지도 -->
+  <div id="map"></div>
+
+  <!-- 카카오맵 SDK -->
+  <script
+    type="text/javascript"
+    src="//dapi.kakao.com/v2/maps/sdk.js?appkey=YOUR_APP_KEY&libraries=services">
+  </script>
+
+  <script>
+
+    // 지도 영역
+    const mapContainer = document.getElementById("map");
+
+    // 지도 옵션
+    const mapOption = {
+      center: new kakao.maps.LatLng(37.5665, 126.9780),
+      level: 4
+    };
+
+    // 지도 생성
+    const map = new kakao.maps.Map(mapContainer, mapOption);
+
+    // 장소 검색 객체
+    const places = new kakao.maps.services.Places();
+
+    // 현재 카테고리
+    let currentCategory = "CV";
+
+    // 마커 배열
+    let markerList = [];
+
+    // 현재 열려있는 말풍선
+    let currentOverlay = null;
+
+    // 현재 위치 표시 원
+    let currentLocationCircle = null;
+
+
+    // 페이지 로드시 실행
+    window.onload = function () {
+      showCurrentLocation();
+    };
+
+
+    // 현재 위치 표시
+    function showCurrentLocation() {
+
+      if (navigator.geolocation) {
+
+        navigator.geolocation.getCurrentPosition(function(position) {
+
+          const latitude = position.coords.latitude;
+          const longitude = position.coords.longitude;
+
+          const currentPosition =
+            new kakao.maps.LatLng(latitude, longitude);
+
+          // 지도 중심 이동
+          map.setCenter(currentPosition);
+
+          // 현재 위치 파란 점
+          currentLocationCircle = new kakao.maps.Circle({
+            center: currentPosition,
+            radius: 12,
+            strokeWeight: 3,
+            strokeColor: "#ffffff",
+            strokeOpacity: 1,
+            fillColor: "#007bff",
+            fillOpacity: 1
+          });
+
+          currentLocationCircle.setMap(map);
+
+          // 현재 위치 기준 검색
+          searchPlaces(currentCategory);
+
+        });
+
+      } else {
+
+        alert("위치 정보를 사용할 수 없습니다.");
+
+      }
+
+    }
+
+
+    // 카테고리 변경
+    function changeCategory(categoryCode, buttonElement) {
+
+      // 현재 카테고리 변경
+      currentCategory = categoryCode;
+
+      // 기존 마커 삭제
+      removeMarkers();
+
+      // 기존 말풍선 제거
+      if (currentOverlay) {
+        currentOverlay.setMap(null);
+      }
+
+      // 버튼 active 제거
+      const buttons =
+        document.querySelectorAll(".tab-button");
+
+      buttons.forEach(function(button) {
+        button.classList.remove("active");
+      });
+
+      // 현재 버튼 active 추가
+      buttonElement.classList.add("active");
+
+      // 새 카테고리 검색
+      searchPlaces(categoryCode);
+
+    }
+
+
+    // 장소 검색
+    function searchPlaces(categoryCode) {
+
+      const center = map.getCenter();
+
+      places.categorySearch(
+        categoryCode,
+        placesSearchCallback,
+        {
+          location: center,
+          radius: 2000
+        }
+      );
+
+    }
+
+
+    // 검색 결과 콜백
+    function placesSearchCallback(data, status) {
+
+      if (status === kakao.maps.services.Status.OK) {
+
+        for (let i = 0; i < data.length; i++) {
+
+          createMarker(data[i]);
+
+        }
+
+      }
+
+    }
+
+
+    // 마커 생성
+    function createMarker(place) {
+
+      const markerPosition =
+        new kakao.maps.LatLng(place.y, place.x);
+
+      // 카테고리별 색상
+      let markerColor;
+
+      if (currentCategory === "CV") {
+
+        markerColor = "blue";
+
+      } else {
+
+        markerColor = "red";
+
+      }
+
+      // SVG 마커 생성
+      const markerSvg = `
+        <svg xmlns="http://www.w3.org/2000/svg"
+          width="40"
+          height="40">
+
+          <circle
+            cx="20"
+            cy="20"
+            r="12"
+            fill="${markerColor}"
+            stroke="white"
+            stroke-width="3"/>
+        </svg>
+      `;
+
+      // 마커 이미지
+      const markerImage =
+        new kakao.maps.MarkerImage(
+          "data:image/svg+xml;charset=utf-8," +
+          encodeURIComponent(markerSvg),
+
+          new kakao.maps.Size(40, 40)
+        );
+
+      // 마커 생성
+      const marker = new kakao.maps.Marker({
+        map: map,
+        position: markerPosition,
+        image: markerImage
+      });
+
+      // 배열 저장
+      markerList.push(marker);
+
+      // 마커 클릭 이벤트
+      kakao.maps.event.addListener(marker, "click", function() {
+
+        // 기존 말풍선 제거
+        if (currentOverlay) {
+          currentOverlay.setMap(null);
+        }
+
+        // 말풍선 HTML
+        const overlayContent = `
+          <div class="custom-overlay">
+
+            <div class="overlay-close"
+              onclick="closeOverlay()">
+              ✕
+            </div>
+
+            <div class="overlay-title">
+              ${place.place_name}
+            </div>
+
+            <div class="overlay-phone">
+              📞 ${place.phone || "전화번호 없음"}
+            </div>
+
+            <a class="overlay-link"
+              href="${place.place_url}"
+              target="_blank">
+              카카오맵에서 보기
+            </a>
+
+          </div>
+        `;
+
+        // 커스텀 오버레이 생성
+        currentOverlay =
+          new kakao.maps.CustomOverlay({
+            content: overlayContent,
+            position: markerPosition,
+            yAnchor: 1.4
+          });
+
+        currentOverlay.setMap(map);
+
+      });
+
+    }
+
+
+    // 말풍선 닫기
+    function closeOverlay() {
+
+      if (currentOverlay) {
+        currentOverlay.setMap(null);
+      }
+
+    }
+
+
+    // 모든 마커 삭제
+    function removeMarkers() {
+
+      for (let i = 0; i < markerList.length; i++) {
+
+        markerList[i].setMap(null);
+
+      }
+
+      markerList = [];
+
+    }
+
+  </script>
+
+</body>
+</html>
